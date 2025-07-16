@@ -1,0 +1,103 @@
+import streamlit as st
+import tensorflow as tf
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+import numpy as np
+import pickle
+import matplotlib.pyplot as plt
+import pandas as pd
+import re # Untuk pembersihan teks sederhana
+
+# --- Konfigurasi ---
+MAX_SEQUENCE_LENGTH = 100 
+TOKENIZER_PATH = 'tokenizer.pickle' 
+MODEL_PATH = 'D:\Semester 6\Data Mining\IMDB\streamlit_IMDB\sentiment_model.h5' 
+
+# --- Muat Model dan Tokenizer ---
+@st.cache_resource # Cache model untuk performa
+def load_model_and_tokenizer():
+    try:
+        model = tf.keras.models.load_model(MODEL_PATH)
+        with open(TOKENIZER_PATH, 'rb') as handle:
+            tokenizer = pickle.load(handle)
+        return model, tokenizer
+    except Exception as e:
+        st.error(f"Error loading model or tokenizer: {e}")
+        st.stop() # Hentikan eksekusi jika gagal memuat
+
+model, tokenizer = load_model_and_tokenizer()
+
+# --- Fungsi Preprocessing Teks ---
+def preprocess_text(text):
+    # Membersihkan teks
+    text = text.lower() # Ubah ke huruf kecil
+    text = re.sub(r'[^a-zA-Z\s]', '', text) # Hapus karakter non-alfabet
+    
+    # Tokenisasi
+    sequence = tokenizer.texts_to_sequences([text])
+    
+    # Padding
+    padded_sequence = pad_sequences(sequence, maxlen=MAX_SEQUENCE_LENGTH)
+    return padded_sequence
+
+# --- Streamlit UI ---
+st.set_page_config(layout="wide")
+st.title("🎬 Analisis Sentimen Review Film IMDB (LSTM)")
+st.write("Masukkan review film di bawah ini untuk memprediksi apakah sentimennya positif atau negatif.")
+
+# Inisialisasi session state untuk menyimpan hasil prediksi
+if 'predictions_log' not in st.session_state:
+    st.session_state.predictions_log = []
+
+# Input Teks
+review_text = st.text_area("Tulis review film Anda di sini:", height=200)
+
+if st.button("Prediksi Sentimen"):
+    if review_text:
+        # Preprocess input
+        processed_input = preprocess_text(review_text)
+        
+        # Prediksi
+        prediction = model.predict(processed_input)[0][0]
+        
+        sentiment = "Positif" if prediction >= 0.5 else "Negatif"
+        
+        # Tampilkan hasil prediksi
+        st.subheader("Hasil Prediksi:")
+        st.success(f"Sentimen review ini adalah: **{sentiment}** (Probabilitas Positif: {prediction:.4f})")
+        
+        # Log hasil prediksi untuk visualisasi
+        st.session_state.predictions_log.append(sentiment)
+        
+    else:
+        st.warning("Mohon masukkan review film terlebih dahulu.")
+
+st.markdown("---")
+
+# --- Visualisasi Hasil Prediksi ---
+st.subheader("Perbandingan Sentimen Prediksi")
+
+if st.session_state.predictions_log:
+    df_predictions = pd.DataFrame(st.session_state.predictions_log, columns=['Sentiment'])
+    
+    sentiment_counts = df_predictions['Sentiment'].value_counts()
+    
+    fig, ax = plt.subplots(figsize=(8, 6))
+    sentiment_counts.plot(kind='bar', ax=ax, color=['#28a745', '#dc3545']) # Hijau untuk Positif, Merah untuk Negatif
+    ax.set_title("Distribusi Sentimen dari Review yang Diprediksi")
+    ax.set_xlabel("Sentimen")
+    ax.set_ylabel("Jumlah Review")
+    ax.tick_params(axis='x', rotation=0) # Pastikan label X tidak berputar
+    
+    # Menampilkan nilai di atas bar
+    for p in ax.patches:
+        ax.annotate(f'{int(p.get_height())}', (p.get_x() + p.get_width() / 2., p.get_height()),
+                    ha='center', va='center', xytext=(0, 10), textcoords='offset points')
+                    
+    st.pyplot(fig)
+    
+    st.markdown(f"Total review yang telah diprediksi: **{len(st.session_state.predictions_log)}**")
+else:
+    st.info("Belum ada review yang diprediksi untuk ditampilkan visualisasinya.")
+
+st.markdown("---")
+st.caption("Aplikasi ini dibuat menggunakan Streamlit dan Model LSTM.")
